@@ -3,10 +3,15 @@
 > 更新完善中
 > 以下类库都在`\\myxland\\helper`命名空间下
 
+## 安装
+~~~
+composer require myxland/think-extend:dev-master
+~~~
+
 ## Http
 > CURL相关操作
 
-```
+~~~
 // 发起请求,get/post
 Http::request($url, $data = null, $method = 'get', $params = null)
 
@@ -25,8 +30,7 @@ Http::postRawSsl($url, $raw, $params)
 
 //下载图片到指定位置
 Http::saveImage($url, $path, $filename = null, $params = null)
-
-```
+~~~
 
 ## Xml
 > XML与Array相关操作
