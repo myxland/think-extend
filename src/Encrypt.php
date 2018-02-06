@@ -1,11 +1,10 @@
 <?php
 
+namespace myxland\extend;
+
 /**
  * 可逆加密解密类
  */
-
-namespace myxland\extend;
-
 class Encrypt
 {
     private static function getKey()

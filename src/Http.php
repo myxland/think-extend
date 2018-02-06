@@ -1,138 +1,198 @@
 <?php
 
+namespace myxland\extend;
+
 /**
  * 基于CURL的Http请求类
  */
-
-namespace myxland\extend;
-
 class Http
 {
-    private static function init($params = null)
+    /**
+     * 发送一个POST请求
+     *
+     * @param string $url 请求的链接
+     * @param mixed $params 传递的参数
+     * @param mixed $options CURL的参数
+     *
+     * @return array
+     */
+    public static function post($url, $params = [], $options = [])
     {
-        if (function_exists('curl_init')) {
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_HEADER, false);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-            if ($params !== null) {
-                self::setParams($ch, $params);
+        $req = self::sendRequest($url, $params, 'POST', $options);
+
+        return $req['ret'] ? $req['msg'] : '';
+    }
+
+    /**
+     * 发送一个GET请求
+     *
+     * @param string $url 请求的链接
+     * @param mixed $params 传递的参数
+     * @param mixed $options CURL的参数
+     *
+     * @return array
+     */
+    public static function get($url, $params = [], $options = [])
+    {
+        $req = self::sendRequest($url, $params, 'GET', $options);
+
+        return $req['ret'] ? $req['msg'] : '';
+    }
+
+    /**
+     * CURL发送Request请求,含POST和REQUEST
+     *
+     * @param string $url 请求的链接
+     * @param mixed $params 传递的参数
+     * @param string $method 请求的方法
+     * @param mixed $options CURL的参数
+     *
+     * @return array
+     */
+    public static function sendRequest($url, $params = [], $method = 'POST', $options = [])
+    {
+        $method       = strtoupper($method);
+        $protocol     = substr($url, 0, 5);
+        $query_string = is_array($params) ? http_build_query($params) : $params;
+
+        $ch       = curl_init();
+        $defaults = [];
+        if ('GET' == $method) {
+            $geturl                = $query_string ? $url . (stripos($url, "?") !== false ? "&" : "?") . $query_string : $url;
+            $defaults[CURLOPT_URL] = $geturl;
+        } else {
+            $defaults[CURLOPT_URL] = $url;
+            if ($method == 'POST') {
+                $defaults[CURLOPT_POST] = 1;
+            } else {
+                $defaults[CURLOPT_CUSTOMREQUEST] = $method;
             }
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+            $defaults[CURLOPT_POSTFIELDS] = $query_string;
+        }
 
-            return $ch;
+        $defaults[CURLOPT_HEADER]         = false;
+        $defaults[CURLOPT_USERAGENT]      = "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.98 Safari/537.36";
+        $defaults[CURLOPT_FOLLOWLOCATION] = true;
+        $defaults[CURLOPT_RETURNTRANSFER] = true;
+        $defaults[CURLOPT_CONNECTTIMEOUT] = 3;
+        $defaults[CURLOPT_TIMEOUT]        = 3;
+
+        // disable 100-continue
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Expect:']);
+
+        if ('https' == $protocol) {
+            $defaults[CURLOPT_SSL_VERIFYPEER] = false;
+            $defaults[CURLOPT_SSL_VERIFYHOST] = false;
+        }
+
+        curl_setopt_array($ch, (array) $options + $defaults);
+
+        $ret = curl_exec($ch);
+        $err = curl_error($ch);
+
+        if (false === $ret || ! empty($err)) {
+            $errno = curl_errno($ch);
+            $info  = curl_getinfo($ch);
+            curl_close($ch);
+
+            return [
+                'ret'   => false,
+                'errno' => $errno,
+                'msg'   => $err,
+                'info'  => $info,
+            ];
+        }
+        curl_close($ch);
+
+        return [
+            'ret' => true,
+            'msg' => $ret,
+        ];
+    }
+
+    /**
+     * 异步发送一个请求
+     *
+     * @param string $url 请求的链接
+     * @param mixed $params 请求的参数
+     * @param string $method 请求的方法
+     *
+     * @return boolean TRUE
+     */
+    public static function sendAsyncRequest($url, $params = [], $method = 'POST')
+    {
+        $method = strtoupper($method);
+        $method = $method == 'POST' ? 'POST' : 'GET';
+        //构造传递的参数
+        if (is_array($params)) {
+            $post_params = [];
+            foreach ($params as $k => &$v) {
+                if (is_array($v)) {
+                    $v = implode(',', $v);
+                }
+                $post_params[] = $k . '=' . urlencode($v);
+            }
+            $post_string = implode('&', $post_params);
         } else {
-            exception('服务器不支持CURL');
+            $post_string = $params;
         }
+        $parts = parse_url($url);
+        //构造查询的参数
+        if ($method == 'GET' && $post_string) {
+            $parts['query'] = isset($parts['query']) ? $parts['query'] . '&' . $post_string : $post_string;
+            $post_string    = '';
+        }
+        $parts['query'] = isset($parts['query']) && $parts['query'] ? '?' . $parts['query'] : '';
+        //发送socket请求,获得连接句柄
+        $fp = fsockopen($parts['host'], isset($parts['port']) ? $parts['port'] : 80, $errno, $errstr, 3);
+        if (! $fp) {
+            return false;
+        }
+        //设置超时时间
+        stream_set_timeout($fp, 3);
+        $out = "{$method} {$parts['path']}{$parts['query']} HTTP/1.1\r\n";
+        $out .= "Host: {$parts['host']}\r\n";
+        $out .= "Content-Type: application/x-www-form-urlencoded\r\n";
+        $out .= "Content-Length: " . strlen($post_string) . "\r\n";
+        $out .= "Connection: Close\r\n\r\n";
+        if ($post_string !== '') {
+            $out .= $post_string;
+        }
+        fwrite($fp, $out);
+        //不用关心服务器返回结果
+        //echo fread($fp, 1024);
+        fclose($fp);
+
+        return true;
     }
 
-    private static function setParams($ch, $params)
+    /**
+     * 发送文件到客户端
+     *
+     * @param string $file
+     * @param bool $delaftersend
+     * @param bool $exitaftersend
+     */
+    public static function sendToBrowser($file, $delaftersend = true, $exitaftersend = true)
     {
-        if (array_key_exists('header', $params)) {
-            curl_setopt($ch, CURLOPT_HTTPHEADER, $params['header']);
+        if (file_exists($file) && is_readable($file)) {
+            header('Content-Description: File Transfer');
+            header('Content-Type: application/octet-stream');
+            header('Content-Disposition: attachment;filename = ' . basename($file));
+            header('Content-Transfer-Encoding: binary');
+            header('Expires: 0');
+            header('Cache-Control: must-revalidate, post-check = 0, pre-check = 0');
+            header('Pragma: public');
+            header('Content-Length: ' . filesize($file));
+            ob_clean();
+            flush();
+            readfile($file);
+            if ($delaftersend) {
+                unlink($file);
+            }
+            if ($exitaftersend) {
+                exit;
+            }
         }
-        curl_setopt($ch, CURLOPT_TIMEOUT, array_key_exists('timeout', $params) ? $params['timeout'] : 30);
-    }
-
-    private static function exec($ch)
-    {
-        $rsp = curl_exec($ch);
-        if ($rsp !== false) {
-            curl_close($ch);
-
-            return $rsp;
-        } else {
-            $errorCode = curl_errno($ch);
-            $errorMsg  = curl_error($ch);
-            curl_close($ch);
-            exception("curl出错，$errorMsg", $errorCode);
-        }
-    }
-
-    public static function request($url, $data = null, $method = 'get', $params = null)
-    {
-        $method = strtolower($method);
-
-        return self::$method($url, $data, $params);
-    }
-
-    public static function get($url, $data = null, $params = null)
-    {
-        $ch  = self::init($params);
-        $url = rtrim($url, '?');
-        if (! is_null($data)) {
-            $url .= '?' . http_build_query($data);
-        }
-        curl_setopt($ch, CURLOPT_URL, $url);
-
-        return self::exec($ch);
-    }
-
-    public static function post($url, $data = null, $params = null)
-    {
-        $ch = self::init($params);
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        if (! is_null($data)) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
-        }
-
-        return self::exec($ch);
-    }
-
-    public static function postRaw($url, $raw, $params = null)
-    {
-        $ch = self::init($params);
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $raw);
-
-        return self::exec($ch);
-    }
-
-    public static function postRawSsl($url, $raw, $params = null)
-    {
-        $ch = self::init($params);
-        if (! array_key_exists('cert_path', $params) || ! array_key_exists('key_path', $params) || ! array_key_exists('ca_path', $params)) {
-            exception('证书文件路径不能为空');
-        }
-        curl_setopt($ch, CURLOPT_SSLCERT, $params['cert_path']);
-        curl_setopt($ch, CURLOPT_SSLKEY, $params['key_path']);
-        curl_setopt($ch, CURLOPT_CAINFO, $params['ca_path']);
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $raw);
-
-        return self::exec($ch);
-    }
-
-    public static function saveImage($url, $path, $filename = null, $params = null)
-    {
-        $ch = self::init($params);
-        curl_setopt($ch, CURLOPT_URL, $url);
-        $img = curl_exec($ch);
-        if ($img !== false) {
-            $file_info = curl_getinfo($ch);
-            curl_close($ch);
-        } else {
-            $errorCode = curl_errno($ch);
-            $errorMsg  = curl_error($ch);
-            curl_close($ch);
-            exception("获取头像出错，$errorMsg", $errorCode);
-        }
-        $content_type = explode('/', $file_info['content_type']);
-        if (strtolower($content_type[0]) != 'image') {
-            exception('下载地址文件不是图片');
-        }
-
-        $file_path = '/' . trim($path, '/') . '/';
-        if (is_null($filename)) {
-            $filename = md5($url);
-        }
-        $file_path .= $filename . '.' . end($content_type);
-
-        return file_put_contents($file_path, $img);
     }
 }
