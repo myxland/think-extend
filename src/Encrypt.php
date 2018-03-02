@@ -106,13 +106,13 @@ class Encrypt
     }
 
     /**
-     * MD5(MD5(key), salt)加密字符串
+     * MD5(MD5(data), salt)加密字符串
      *
      * @param string $data 字符串/数组
      * @param string $key 加密key
      * @return string
      */
-    public static function encrypt_md5($data, $key = '')
+    public static function md5($data, $key = '')
     {
         if (! $data) {
             return '';
@@ -121,6 +121,6 @@ class Encrypt
             $key = self::getKey();
         }
 
-        return md5($key . md5($data));
+        return md5(md5($data), $salt);
     }
 }
