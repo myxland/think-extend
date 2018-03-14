@@ -121,6 +121,6 @@ class Encrypt
             $key = self::getKey();
         }
 
-        return md5(md5($data), $salt);
+        return md5(md5($data), $key);
     }
 }
